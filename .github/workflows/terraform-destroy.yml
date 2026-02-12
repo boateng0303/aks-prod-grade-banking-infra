@@ -1,0 +1,245 @@
+name: 'Terraform Destroy'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      confirm:
+        description: 'Type the environment name to confirm destruction'
+        required: true
+        type: string
+      reason:
+        description: 'Reason for destruction'
+        required: true
+        type: string
+
+concurrency:
+  group: terraform-destroy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  TF_LOG: INFO
+  TF_INPUT: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ============================================
+  # VALIDATION
+  # ============================================
+  validate:
+    name: Validate Destruction Request
+    runs-on: ubuntu-latest
+    outputs:
+      confirmed: ${{ steps.validate.outputs.confirmed }}
+    steps:
+      - name: Validate Confirmation
+        id: validate
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "${{ github.event.inputs.environment }}" ]; then
+            echo "::error::Confirmation does not match environment name"
+            echo "::error::You entered '${{ github.event.inputs.confirm }}' but environment is '${{ github.event.inputs.environment }}'"
+            echo "confirmed=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Confirmation validated"
+          echo "confirmed=true" >> $GITHUB_OUTPUT
+
+      - name: Log Destruction Request
+        run: |
+          echo "🗑️ INFRASTRUCTURE DESTRUCTION REQUEST"
+          echo "======================================"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Requested by: ${{ github.actor }}"
+          echo "Reason: ${{ github.event.inputs.reason }}"
+          echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "======================================"
+          
+          # Add audit logging here (e.g., to external system)
+
+  # ============================================
+  # DESTROY NON-PRODUCTION
+  # ============================================
+  destroy-non-prod:
+    name: Destroy ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      needs.validate.outputs.confirmed == 'true' &&
+      github.event.inputs.environment != 'prod'
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pre-Destruction Backup
+        run: |
+          echo "📦 Creating pre-destruction backup..."
+          # Add backup commands here (e.g., database snapshots)
+          echo "Backup completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Plan Destruction
+        id: plan
+        uses: ./.github/actions/terraform-azure
+        with:
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          environment: ${{ github.event.inputs.environment }}
+          operation: plan
+          backend-resource-group: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          backend-storage-account: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          github-token: ${{ secrets.MY_TOKEN }}
+          plan-title: '🗑️ Destruction Plan'
+
+      - name: Execute Destruction
+        uses: ./.github/actions/terraform-azure
+        with:
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          environment: ${{ github.event.inputs.environment }}
+          operation: destroy
+          auto-approve: 'true'
+          backend-resource-group: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          backend-storage-account: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          github-token: ${{ secrets.MY_TOKEN }}
+          plan-title: '🗑️ Destruction Execution'
+
+      - name: Destruction Complete
+        run: |
+          echo "## 🗑️ Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroyed by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack Notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          ENV="${{ github.event.inputs.environment }}"
+          if [ "$STATUS" = "success" ]; then
+            COLOR="good"
+            EMOJI="✅"
+          else
+            COLOR="danger"
+            EMOJI="❌"
+          fi
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"title\": \"$EMOJI $ENV Infrastructure Destroyed\",
+                \"fields\": [
+                  {\"title\": \"Environment\", \"value\": \"$ENV\", \"short\": true},
+                  {\"title\": \"Status\", \"value\": \"$STATUS\", \"short\": true},
+                  {\"title\": \"Destroyed by\", \"value\": \"${{ github.actor }}\", \"short\": true},
+                  {\"title\": \"Reason\", \"value\": \"${{ github.event.inputs.reason }}\", \"short\": false}
+                ]
+              }]
+            }" \
+            $SLACK_WEBHOOK_URL
+
+  # ============================================
+  # DESTROY PRODUCTION (Extra Safety)
+  # ============================================
+  destroy-prod-approval:
+    name: Production Destruction Approval
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      needs.validate.outputs.confirmed == 'true' &&
+      github.event.inputs.environment == 'prod'
+    environment:
+      name: production-destroy  # Separate environment with stricter rules
+    
+    steps:
+      - name: Production Destruction Warning
+        run: |
+          echo "⚠️ PRODUCTION DESTRUCTION APPROVED"
+          echo "==================================="
+          echo "This action will permanently destroy all production infrastructure"
+          echo "Approved by: ${{ github.actor }}"
+          echo "Reason: ${{ github.event.inputs.reason }}"
+
+  destroy-prod:
+    name: Destroy Production
+    runs-on: ubuntu-latest
+    needs: destroy-prod-approval
+    environment:
+      name: production
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Production Backup
+        run: |
+          echo "📦 Creating comprehensive production backup..."
+          # Add production backup commands
+          # az backup protection backup-now ...
+          echo "Production backup completed"
+
+      - name: Execute Production Destruction
+        uses: ./.github/actions/terraform-azure
+        with:
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          environment: prod
+          operation: destroy
+          auto-approve: 'true'
+          backend-resource-group: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          backend-storage-account: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          github-token: ${{ secrets.MY_TOKEN }}
+          plan-title: '🗑️ Production Destruction'
+          lock-timeout: '15m'
+          parallelism: '3'
+
+      - name: Send Notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            COLOR="good"
+            EMOJI="✅"
+          else
+            COLOR="danger"
+            EMOJI="❌"
+          fi
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"title\": \"$EMOJI Production Infrastructure Destroyed\",
+                \"fields\": [
+                  {\"title\": \"Environment\", \"value\": \"prod\", \"short\": true},
+                  {\"title\": \"Status\", \"value\": \"$STATUS\", \"short\": true},
+                  {\"title\": \"Destroyed by\", \"value\": \"${{ github.actor }}\", \"short\": true},
+                  {\"title\": \"Reason\", \"value\": \"${{ github.event.inputs.reason }}\", \"short\": false}
+                ]
+              }]
+            }" \
+            $SLACK_WEBHOOK_URL

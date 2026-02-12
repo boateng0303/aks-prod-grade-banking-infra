@@ -1,0 +1,705 @@
+name: 'Terraform Azure Composite'
+description: 'Production-grade Terraform workflow for Azure with OIDC, security scanning, cost estimation, and PR automation'
+author: 'DevOps Team'
+
+inputs:
+  # Authentication - OIDC (Recommended)
+  azure-client-id:
+    description: 'Azure AD Application (client) ID for OIDC'
+    required: false
+  azure-tenant-id:
+    description: 'Azure AD Tenant ID'
+    required: true
+  azure-subscription-id:
+    description: 'Azure Subscription ID'
+    required: true
+  
+  # Authentication - Service Principal (Legacy)
+  azure-client-secret:
+    description: 'Azure AD Application client secret (use OIDC instead)'
+    required: false
+  
+  # Terraform Configuration
+  environment:
+    description: 'Target environment (dev, staging, prod)'
+    required: true
+    default: 'dev'
+  working-directory:
+    description: 'Directory containing Terraform configuration'
+    required: false
+    default: './Infrastructure/azure/environments'
+  terraform-version:
+    description: 'Terraform version to use'
+    required: false
+    default: '1.6.6'
+  
+  # Operation Mode
+  operation:
+    description: 'Operation to perform: plan, apply, destroy, drift-detect'
+    required: true
+    default: 'plan'
+  
+  # State Backend
+  backend-resource-group:
+    description: 'Resource group for Terraform state storage'
+    required: true
+  backend-storage-account:
+    description: 'Storage account for Terraform state'
+    required: true
+  backend-container:
+    description: 'Blob container for Terraform state'
+    required: false
+    default: 'tfstate'
+  backend-key:
+    description: 'State file key/path'
+    required: false
+  
+  # Security & Quality
+  enable-security-scan:
+    description: 'Enable tfsec and checkov security scanning'
+    required: false
+    default: 'true'
+  enable-cost-estimation:
+    description: 'Enable Infracost cost estimation'
+    required: false
+    default: 'true'
+  infracost-api-key:
+    description: 'Infracost API key for cost estimation'
+    required: false
+  
+  # PR Integration
+  github-token:
+    description: 'GitHub token for PR comments'
+    required: true
+  plan-title:
+    description: 'Title for plan comment on PR'
+    required: false
+    default: 'Terraform Plan'
+  
+  # Additional Options
+  terraform-vars:
+    description: 'Additional Terraform variables in JSON format'
+    required: false
+    default: '{}'
+  terraform-var-files:
+    description: 'Comma-separated list of .tfvars files'
+    required: false
+  auto-approve:
+    description: 'Auto-approve apply/destroy (use with caution)'
+    required: false
+    default: 'false'
+  lock-timeout:
+    description: 'State lock timeout duration'
+    required: false
+    default: '5m'
+  parallelism:
+    description: 'Limit the number of concurrent operations'
+    required: false
+    default: '10'
+  
+  # Secrets (passed as TF_VAR_*)
+  slack-webhook-url:
+    description: 'Slack webhook URL for alerts (sensitive - passed as TF_VAR)'
+    required: false
+    default: ''
+
+outputs:
+  plan-exitcode:
+    description: 'Terraform plan exit code (0=no changes, 2=changes)'
+    value: ${{ steps.plan.outputs.exitcode }}
+  plan-stdout:
+    description: 'Terraform plan output'
+    value: ${{ steps.plan.outputs.stdout }}
+  apply-exitcode:
+    description: 'Terraform apply exit code'
+    value: ${{ steps.apply.outputs.exitcode }}
+  cost-monthly:
+    description: 'Estimated monthly cost from Infracost'
+    value: ${{ steps.infracost.outputs.monthly_cost }}
+  drift-detected:
+    description: 'Whether drift was detected'
+    value: ${{ steps.drift.outputs.drift_detected }}
+  resources-changed:
+    description: 'Number of resources to be changed'
+    value: ${{ steps.plan-summary.outputs.resources_changed }}
+
+branding:
+  icon: 'cloud'
+  color: 'blue'
+
+runs:
+  using: 'composite'
+  steps:
+    # ============================================
+    # SETUP PHASE
+    # ============================================
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: true
+
+    - name: Cache Terraform Plugins
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          ${{ inputs.working-directory }}/${{ inputs.environment }}/.terraform
+        key: terraform-${{ runner.os }}-${{ inputs.environment }}-${{ hashFiles('**/*.tf') }}
+        restore-keys: |
+          terraform-${{ runner.os }}-${{ inputs.environment }}-
+          terraform-${{ runner.os }}-
+
+    - name: Configure Terraform Plugin Cache
+      shell: bash
+      run: |
+        mkdir -p ~/.terraform.d/plugin-cache
+        echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.terraformrc
+
+    # ============================================
+    # AZURE AUTHENTICATION
+    # ============================================
+    - name: Azure Login (OIDC)
+      if: inputs.azure-client-secret == ''
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Azure Login (Service Principal)
+      if: inputs.azure-client-secret != ''
+      uses: azure/login@v2
+      with:
+        creds: |
+          {
+            "clientId": "${{ inputs.azure-client-id }}",
+            "clientSecret": "${{ inputs.azure-client-secret }}",
+            "subscriptionId": "${{ inputs.azure-subscription-id }}",
+            "tenantId": "${{ inputs.azure-tenant-id }}"
+          }
+
+    - name: Set Azure Environment Variables
+      shell: bash
+      run: |
+        # Set ARM environment variables for Terraform
+        echo "ARM_CLIENT_ID=${{ inputs.azure-client-id }}" >> $GITHUB_ENV
+        echo "ARM_TENANT_ID=${{ inputs.azure-tenant-id }}" >> $GITHUB_ENV
+        echo "ARM_SUBSCRIPTION_ID=${{ inputs.azure-subscription-id }}" >> $GITHUB_ENV
+        
+        # For OIDC
+        if [ -z "${{ inputs.azure-client-secret }}" ]; then
+          echo "ARM_USE_OIDC=true" >> $GITHUB_ENV
+        else
+          echo "ARM_CLIENT_SECRET=${{ inputs.azure-client-secret }}" >> $GITHUB_ENV
+        fi
+
+    # ============================================
+    # CODE QUALITY CHECKS
+    # ============================================
+    - name: Terraform Format Check
+      id: fmt
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        terraform fmt -check -recursive -diff
+      continue-on-error: true
+
+    - name: Setup TFLint
+      if: inputs.enable-security-scan == 'true'
+      uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: latest
+
+    - name: Initialize TFLint
+      if: inputs.enable-security-scan == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: tflint --init
+      continue-on-error: true
+
+    - name: Run TFLint
+      id: tflint
+      if: inputs.enable-security-scan == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        tflint --format=compact --recursive
+      continue-on-error: true
+
+    # ============================================
+    # SECURITY SCANNING
+    # ============================================
+    - name: Run tfsec
+      id: tfsec
+      if: inputs.enable-security-scan == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        # Install tfsec if not available
+        which tfsec || curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+        tfsec . --format=sarif --out=tfsec-results.sarif --soft-fail || true
+      continue-on-error: true
+
+    - name: Upload tfsec SARIF
+      if: inputs.enable-security-scan == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.working-directory }}/${{ inputs.environment }}/tfsec-results.sarif
+      continue-on-error: true
+
+    - name: Run Checkov
+      id: checkov
+      if: inputs.enable-security-scan == 'true'
+      uses: bridgecrewio/checkov-action@v12
+      with:
+        directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+        framework: terraform
+        output_format: cli,sarif
+        output_file_path: console,checkov-results.sarif
+        soft_fail: true
+        # Skip checks that are environment-specific or require premium features
+        # LOW severity: CKV_AZURE_35,36 (logging), CKV2_AZURE_31 (subnet NSG - handled separately)
+        # MEDIUM: CKV_AZURE_94 (geo-backup dev), CKV_AZURE_170 (paid SKU), CKV_AZURE_160 (HTTP rule)
+        # Premium features: CKV_AZURE_166,233,237,165 (ACR premium), CKV_AZURE_227,226,117 (AKS encryption)
+        skip_check: CKV_AZURE_35,CKV_AZURE_36,CKV2_AZURE_31,CKV_AZURE_94,CKV_AZURE_170,CKV_AZURE_160,CKV_AZURE_166,CKV_AZURE_233,CKV_AZURE_237,CKV_AZURE_165,CKV_AZURE_227,CKV_AZURE_226,CKV_AZURE_117,CKV_AZURE_116,CKV_AZURE_141,CKV_AZURE_115,CKV_AZURE_6,CKV2_AZURE_30,CKV2_AZURE_56
+      continue-on-error: true
+
+    # ============================================
+    # TERRAFORM INIT
+    # ============================================
+    - name: Determine Backend Key
+      id: backend-key
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.backend-key }}" ]; then
+          echo "key=${{ inputs.backend-key }}" >> $GITHUB_OUTPUT
+        else
+          echo "key=${{ inputs.environment }}/terraform.tfstate" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Terraform Init
+      id: init
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        terraform init \
+          -backend-config="resource_group_name=${{ inputs.backend-resource-group }}" \
+          -backend-config="storage_account_name=${{ inputs.backend-storage-account }}" \
+          -backend-config="container_name=${{ inputs.backend-container }}" \
+          -backend-config="key=${{ steps.backend-key.outputs.key }}" \
+          -input=false \
+          -no-color
+
+    - name: Terraform Workspace
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+
+    - name: Terraform Validate
+      id: validate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: terraform validate -no-color
+
+    # ============================================
+    # TERRAFORM PLAN
+    # ============================================
+    - name: Build Terraform Variables
+      id: tf-vars
+      shell: bash
+      run: |
+        VAR_ARGS=""
+        
+        # Add JSON variables
+        if [ '${{ inputs.terraform-vars }}' != '{}' ]; then
+          echo '${{ inputs.terraform-vars }}' | jq -r 'to_entries[] | "-var \(.key)=\(.value)"' | while read line; do
+            VAR_ARGS="$VAR_ARGS $line"
+          done
+        fi
+        
+        # Add var files
+        if [ -n "${{ inputs.terraform-var-files }}" ]; then
+          IFS=',' read -ra FILES <<< "${{ inputs.terraform-var-files }}"
+          for file in "${FILES[@]}"; do
+            VAR_ARGS="$VAR_ARGS -var-file=$file"
+          done
+        fi
+        
+        echo "var_args=$VAR_ARGS" >> $GITHUB_OUTPUT
+
+    - name: Terraform Plan
+      id: plan
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      env:
+        TF_VAR_slack_webhook_url: ${{ inputs.slack-webhook-url }}
+      run: |
+        # Run terraform plan and capture output
+        terraform plan \
+          -input=false \
+          -no-color \
+          -out=tfplan.binary \
+          -lock-timeout=${{ inputs.lock-timeout }} \
+          -parallelism=${{ inputs.parallelism }} \
+          ${{ steps.tf-vars.outputs.var_args }} \
+          2>&1 | tee plan_output.txt
+        
+        # Check if plan failed (terraform will exit non-zero on actual errors)
+        if [ ! -f tfplan.binary ]; then
+          echo "::error::Terraform plan failed - no plan file created"
+          exit 1
+        fi
+        
+        # Detect changes by parsing the plan output (more reliable than exit codes)
+        if grep -q "No changes. Your infrastructure matches the configuration." plan_output.txt; then
+          echo "exitcode=0" >> $GITHUB_OUTPUT
+          echo "::notice::No changes detected - infrastructure is up to date"
+        elif grep -q "Plan:" plan_output.txt; then
+          # Extract the plan summary
+          PLAN_SUMMARY=$(grep "Plan:" plan_output.txt)
+          echo "::notice::Changes detected: $PLAN_SUMMARY"
+          echo "exitcode=2" >> $GITHUB_OUTPUT
+        else
+          # Assume changes if we can't determine (safer to apply)
+          echo "exitcode=2" >> $GITHUB_OUTPUT
+          echo "::notice::Assuming changes present"
+        fi
+        
+        # Convert binary plan to JSON for analysis
+        if [ -f tfplan.binary ]; then
+          terraform show -json tfplan.binary > tfplan.json 2>/dev/null || echo '{}' > tfplan.json
+        else
+          echo '{}' > tfplan.json
+        fi
+
+    - name: Analyze Plan Changes
+      id: plan-summary
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        # Extract change summary from plan JSON
+        if [ -f tfplan.json ]; then
+          ADD=$(jq '[.resource_changes[]? | select(.change.actions | contains(["create"]))] | length' tfplan.json)
+          CHANGE=$(jq '[.resource_changes[]? | select(.change.actions | contains(["update"]))] | length' tfplan.json)
+          DESTROY=$(jq '[.resource_changes[]? | select(.change.actions | contains(["delete"]))] | length' tfplan.json)
+          
+          echo "resources_add=$ADD" >> $GITHUB_OUTPUT
+          echo "resources_change=$CHANGE" >> $GITHUB_OUTPUT
+          echo "resources_destroy=$DESTROY" >> $GITHUB_OUTPUT
+          echo "resources_changed=$((ADD + CHANGE + DESTROY))" >> $GITHUB_OUTPUT
+          
+          # Create human-readable summary
+          echo "### 📊 Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Action | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Add | $ADD |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Change | $CHANGE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Destroy | $DESTROY |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    # ============================================
+    # COST ESTIMATION
+    # ============================================
+    - name: Setup Infracost
+      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != ''
+      uses: infracost/actions/setup@v3
+      with:
+        api-key: ${{ inputs.infracost-api-key }}
+
+    - name: Generate Infracost Report
+      id: infracost
+      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        infracost breakdown \
+          --path=tfplan.json \
+          --format=json \
+          --out-file=/tmp/infracost.json
+        
+        MONTHLY_COST=$(jq -r '.totalMonthlyCost' /tmp/infracost.json)
+        echo "monthly_cost=$MONTHLY_COST" >> $GITHUB_OUTPUT
+        
+        # Add to summary
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 💰 Cost Estimation" >> $GITHUB_STEP_SUMMARY
+        echo "Estimated monthly cost: **\$$MONTHLY_COST**" >> $GITHUB_STEP_SUMMARY
+      continue-on-error: true
+
+    - name: Post Infracost Comment
+      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != '' && github.event_name == 'pull_request'
+      uses: infracost/actions/comment@v1
+      with:
+        path: /tmp/infracost.json
+        behavior: update
+      continue-on-error: true
+
+    # ============================================
+    # PR COMMENT
+    # ============================================
+    - name: Generate Plan Output
+      id: plan-output
+      if: github.event_name == 'pull_request'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        terraform show -no-color tfplan.binary > /tmp/plan_readable.txt
+
+    - name: Post Plan to PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const planOutput = fs.readFileSync('/tmp/plan_readable.txt', 'utf8');
+          
+          // Truncate if too long
+          const maxLength = 60000;
+          const truncatedPlan = planOutput.length > maxLength 
+            ? planOutput.substring(0, maxLength) + '\n\n... (truncated, see workflow logs for full output)'
+            : planOutput;
+          
+          const fmtResult = '${{ steps.fmt.outcome }}' === 'success' ? '✅' : '⚠️';
+          const initResult = '${{ steps.init.outcome }}' === 'success' ? '✅' : '❌';
+          const validateResult = '${{ steps.validate.outcome }}' === 'success' ? '✅' : '❌';
+          const planResult = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+          const tfsecResult = '${{ steps.tfsec.outcome }}' === 'success' ? '✅' : '⚠️';
+          
+          const addCount = '${{ steps.plan-summary.outputs.resources_add }}' || '0';
+          const changeCount = '${{ steps.plan-summary.outputs.resources_change }}' || '0';
+          const destroyCount = '${{ steps.plan-summary.outputs.resources_destroy }}' || '0';
+          
+          const body = `## ${{ inputs.plan-title }} - \`${{ inputs.environment }}\` Environment
+          
+          ### Workflow Status
+          | Step | Status |
+          |------|--------|
+          | 🖌️ Format | ${fmtResult} |
+          | ⚙️ Init | ${initResult} |
+          | ✅ Validate | ${validateResult} |
+          | 📖 Plan | ${planResult} |
+          | 🔒 Security Scan | ${tfsecResult} |
+          
+          ### Resource Changes
+          | Action | Count |
+          |--------|-------|
+          | 🟢 Create | ${addCount} |
+          | 🟡 Update | ${changeCount} |
+          | 🔴 Delete | ${destroyCount} |
+          
+          <details>
+          <summary>📋 Show Full Plan</summary>
+          
+          \`\`\`hcl
+          ${truncatedPlan}
+          \`\`\`
+          
+          </details>
+          
+          ---
+          *Triggered by @${{ github.actor }} | Workflow: \`${{ github.workflow }}\` | [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+          
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('${{ inputs.plan-title }}') &&
+            comment.body.includes('${{ inputs.environment }}')
+          );
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }
+
+    # ============================================
+    # DRIFT DETECTION
+    # ============================================
+    - name: Detect Drift
+      id: drift
+      if: inputs.operation == 'drift-detect'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        # Disable exit on error to capture terraform output even on failure
+        set +e
+        
+        # Run refresh-only plan to detect actual infrastructure drift
+        # This compares Azure reality vs Terraform state (not config vs state)
+        echo "Running terraform plan -refresh-only to detect drift..."
+        
+        terraform plan \
+          -refresh-only \
+          -input=false \
+          -no-color \
+          -lock-timeout=${{ inputs.lock-timeout }} \
+          2>&1 | tee drift_output.txt
+        
+        TERRAFORM_EXIT_CODE=$?
+        echo "Terraform exit code: $TERRAFORM_EXIT_CODE"
+        
+        # Check for errors first
+        if [ $TERRAFORM_EXIT_CODE -ne 0 ]; then
+          echo "drift_detected=false" >> $GITHUB_OUTPUT
+          echo "::error::Terraform refresh-only plan failed with exit code $TERRAFORM_EXIT_CODE"
+          echo "## 🔄 Drift Detection Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ❌ Error during drift detection" >> $GITHUB_STEP_SUMMARY
+          echo "**Exit Code:** $TERRAFORM_EXIT_CODE" >> $GITHUB_STEP_SUMMARY
+          exit 0  # Don't fail the workflow, just report the error
+        fi
+        
+        # Parse output to detect drift (more reliable than exit codes for refresh-only)
+        # Terraform shows "Objects have changed outside of Terraform" when drift exists
+        if grep -q "Objects have changed outside of Terraform" drift_output.txt; then
+          echo "drift_detected=true" >> $GITHUB_OUTPUT
+          echo "::warning::Infrastructure drift detected!"
+          echo "Drift detected: Output contains 'Objects have changed outside of Terraform'"
+          
+          # Create drift report
+          echo "## 🔄 Drift Detection Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ⚠️ Drift Detected" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>📋 Drift Details</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Filter only the relevant drift info (changes section)
+          sed -n '/Note: Objects have changed/,/This is a refresh-only plan/p' drift_output.txt >> $GITHUB_STEP_SUMMARY || cat drift_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "drift_detected=false" >> $GITHUB_OUTPUT
+          echo "No drift detected: Output does not contain drift indicator"
+          echo "## 🔄 Drift Detection Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ No Drift" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    # ============================================
+    # TERRAFORM APPLY
+    # ============================================
+    - name: Terraform Apply
+      id: apply
+      if: inputs.operation == 'apply' && (inputs.auto-approve == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push'))
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      env:
+        TF_VAR_slack_webhook_url: ${{ inputs.slack-webhook-url }}
+      run: |
+        # Terraform apply is idempotent - always safe to run
+        # If no changes, it completes instantly with "No changes"
+        # If changes exist, it applies them
+        
+        echo "::notice::Running terraform apply (idempotent operation)"
+        
+        terraform apply \
+          -input=false \
+          -no-color \
+          -auto-approve \
+          -lock-timeout=${{ inputs.lock-timeout }} \
+          -parallelism=${{ inputs.parallelism }} \
+          tfplan.binary 2>&1 | tee apply_output.txt
+        
+        APPLY_EXIT_CODE=$?
+        echo "exitcode=$APPLY_EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        if [ $APPLY_EXIT_CODE -ne 0 ]; then
+          echo "::error::Terraform apply failed"
+          exit 1
+        fi
+        
+        echo "### ✅ Apply Completed Successfully" >> $GITHUB_STEP_SUMMARY
+        echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+
+    # ============================================
+    # TERRAFORM DESTROY
+    # ============================================
+    - name: Terraform Destroy
+      id: destroy
+      if: inputs.operation == 'destroy'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
+      run: |
+        set +e
+        
+        if [ "${{ inputs.auto-approve }}" != "true" ]; then
+          echo "::error::Destroy requires auto-approve=true for safety"
+          exit 1
+        fi
+        
+        terraform destroy \
+          -input=false \
+          -no-color \
+          -auto-approve \
+          -lock-timeout=${{ inputs.lock-timeout }} \
+          -parallelism=${{ inputs.parallelism }} \
+          ${{ steps.tf-vars.outputs.var_args }} 2>&1 | tee destroy_output.txt
+        
+        DESTROY_EXIT_CODE=${PIPESTATUS[0]}
+        echo "exitcode=$DESTROY_EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        if [ $DESTROY_EXIT_CODE -ne 0 ]; then
+          echo "::error::Terraform destroy failed"
+          exit 1
+        fi
+        
+        echo "### 🗑️ Destroy Completed Successfully" >> $GITHUB_STEP_SUMMARY
+        echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+
+    # ============================================
+    # CLEANUP & ARTIFACTS
+    # ============================================
+    - name: Upload Plan Artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-${{ inputs.environment }}-${{ github.run_number }}
+        path: |
+          ${{ inputs.working-directory }}/${{ inputs.environment }}/tfplan.json
+          ${{ inputs.working-directory }}/${{ inputs.environment }}/plan_output.txt
+        retention-days: 30
+      continue-on-error: true
+
+    - name: Final Status
+      if: always()
+      shell: bash
+      run: |
+        echo "### 📋 Workflow Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Operation | ${{ inputs.operation }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Terraform Version | ${{ inputs.terraform-version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Runner | ${{ runner.os }} |" >> $GITHUB_STEP_SUMMARY

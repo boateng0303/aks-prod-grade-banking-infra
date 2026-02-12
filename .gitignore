@@ -1,0 +1,63 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+tfplan
+tfplan.json
+plan.json
+*.tfvars
+!*.tfvars.example
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials (never commit)
+*.pem
+*.key
+*.crt
+credentials.json
+service-account.json
+
+# Infracost
+.infracost/
+infracost*.json
+
+# tfsec
+.tfsec/
+tfsec-results.*
+
+# Checkov
+checkov-results.*
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
