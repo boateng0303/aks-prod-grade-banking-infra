@@ -1,0 +1,62 @@
+# =============================================================================
+# PRODUCTION ENVIRONMENT - EXAMPLE VARIABLES
+# Copy this file to terraform.tfvars and fill in the values
+# =============================================================================
+
+project_name = "banking"
+location     = "eastus"
+cost_center  = "production"
+owner_email  = "devops@yourcompany.com"
+
+kubernetes_version = "1.32"
+
+# Azure AD group IDs for AKS cluster admins (REQUIRED for production)
+aks_admin_group_ids = [
+  # "00000000-0000-0000-0000-000000000000"
+]
+
+# Object IDs for Key Vault administrators (REQUIRED for production)
+keyvault_admin_object_ids = [
+  # "00000000-0000-0000-0000-000000000000"
+]
+
+# Alert receivers (REQUIRED for production)
+alert_email_receivers = [
+  # {
+  #   name  = "DevOps Team"
+  #   email = "devops@yourcompany.com"
+  # },
+  # {
+  #   name  = "Security Team"
+  #   email = "security@yourcompany.com"
+  # }
+]
+
+alert_sms_receivers = [
+  # {
+  #   name         = "Primary On-Call"
+  #   country_code = "1"
+  #   phone_number = "5551234567"
+  # },
+  # {
+  #   name         = "Secondary On-Call"
+  #   country_code = "1"
+  #   phone_number = "5559876543"
+  # }
+]
+
+alert_webhook_receivers = [
+  # {
+  #   name        = "pagerduty"
+  #   service_uri = "https://events.pagerduty.com/integration/xxx/enqueue"
+  # }
+]
+
+# ACR geo-replication for disaster recovery
+acr_georeplications = [
+  {
+    location                  = "West US 2"
+    regional_endpoint_enabled = true
+    zone_redundancy_enabled   = true
+  }
+]

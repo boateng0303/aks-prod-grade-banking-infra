@@ -28,15 +28,13 @@ terraform {
 provider "azurerm" {
   features {
     key_vault {
-      purge_soft_delete_on_destroy     = false
-      recover_soft_deleted_key_vaults  = true
+      purge_soft_delete_on_destroy    = false
+      recover_soft_deleted_key_vaults = true
     }
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
   }
-
-  skip_provider_registration = true
 }
 
 provider "azuread" {}
@@ -72,7 +70,6 @@ locals {
     ManagedBy   = "Terraform"
     CostCenter  = var.cost_center
     Owner       = var.owner_email
-    CreatedDate = timestamp()
   }
 }
 
@@ -137,6 +134,8 @@ module "monitoring" {
 
   alert_email_receivers = var.alert_email_receivers
 
+  alert_sms_receivers = var.alert_sms_receivers
+
   alert_webhook_receivers = concat(
     var.alert_webhook_receivers,
     var.slack_webhook_url != "" ? [{
@@ -159,10 +158,13 @@ module "acr" {
   location            = local.location
   resource_group_name = module.resource_group.name
 
-  sku                           = "Standard"
+  sku                           = "Premium"
   admin_enabled                 = false
-  public_network_access_enabled = true
-  enable_private_endpoint       = false
+  public_network_access_enabled = false
+
+  enable_private_endpoint    = true
+  private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
+  private_dns_zone_id        = module.networking.acr_private_dns_zone_id
 
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
 
@@ -182,11 +184,14 @@ module "keyvault" {
 
   sku_name                      = "standard"
   enable_rbac_authorization     = true
-  purge_protection_enabled      = false
-  soft_delete_retention_days    = 7
-  public_network_access_enabled = true
-  enable_private_endpoint       = false
-  network_acls_default_action   = "Allow"
+  purge_protection_enabled      = true
+  soft_delete_retention_days    = 30
+  public_network_access_enabled = false
+  network_acls_default_action   = "Deny"
+
+  enable_private_endpoint    = true
+  private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
+  private_dns_zone_id        = module.networking.keyvault_private_dns_zone_id
 
   admin_object_ids = var.keyvault_admin_object_ids
 
@@ -202,17 +207,18 @@ module "keyvault" {
 module "aks" {
   source = "../../modules/aks"
 
-  cluster_name       = "${local.prefix}-aks"
-  location           = local.location
+  cluster_name        = "${local.prefix}-aks"
+  location            = local.location
   resource_group_name = module.resource_group.name
-  dns_prefix         = "${var.project_name}-${local.environment}"
-  kubernetes_version = var.kubernetes_version
-  environment        = local.environment
+  dns_prefix          = "${var.project_name}-${local.environment}"
+  kubernetes_version  = var.kubernetes_version
+  environment         = local.environment
 
   subnet_id = module.networking.aks_subnet_id
 
-  private_cluster_enabled = false
-  sku_tier                = "Free"
+  private_cluster_enabled             = true
+  private_cluster_public_fqdn_enabled = true
+  sku_tier                            = "Free"
 
   system_node_pool_vm_size   = "Standard_B2ms"
   system_node_pool_count     = 1

@@ -81,7 +81,7 @@ module "resource_group" {
 
   name               = "${local.prefix}-rg"
   location           = local.location
-  enable_delete_lock = false
+  enable_delete_lock = true
   tags               = local.common_tags
 }
 
@@ -182,11 +182,11 @@ module "keyvault" {
   enable_rbac_authorization     = true
   purge_protection_enabled      = true
   soft_delete_retention_days    = 90
-  public_network_access_enabled = true
-  network_acls_default_action   = "Allow"
+  public_network_access_enabled = false
+  network_acls_default_action   = "Deny"
   enabled_for_disk_encryption   = true
 
-  enable_private_endpoint    = false
+  enable_private_endpoint    = true
   private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
   private_dns_zone_id        = module.networking.keyvault_private_dns_zone_id
 
@@ -228,7 +228,7 @@ module "aks" {
 
   enable_spot_node_pool = false
 
-  availability_zones = []
+  availability_zones = ["1", "2", "3"]
   max_pods_per_node  = 50
 
   enable_azure_rbac      = true
@@ -237,7 +237,7 @@ module "aks" {
   enable_workload_identity = true
   enable_azure_policy      = true
 
-  outbound_type = "userDefinedRouting"
+  outbound_type = "loadBalancer"
 
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
   acr_id                     = module.acr.id
@@ -261,7 +261,13 @@ resource "azurerm_recovery_services_vault" "main" {
   sku                 = "Standard"
 
   soft_delete_enabled = true
-  tags                = local.common_tags
+  immutability        = "Unlocked"
+
+  tags = local.common_tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # -----------------------------------------------------------------------------

@@ -79,7 +79,7 @@ module "resource_group" {
 
   name               = "${local.prefix}-rg"
   location           = local.location
-  enable_delete_lock = false
+  enable_delete_lock = true
   tags               = local.common_tags
 }
 
@@ -176,10 +176,10 @@ module "keyvault" {
   enable_rbac_authorization     = true
   purge_protection_enabled      = true
   soft_delete_retention_days    = 30
-  public_network_access_enabled = true
-  network_acls_default_action   = "Allow"
+  public_network_access_enabled = false
+  network_acls_default_action   = "Deny"
 
-  enable_private_endpoint    = false
+  enable_private_endpoint    = true
   private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
   private_dns_zone_id        = module.networking.keyvault_private_dns_zone_id
 
@@ -219,7 +219,7 @@ module "aks" {
   enable_user_node_pool = false  # Disabled to save vCPUs
 
   enable_spot_node_pool = false
-  availability_zones    = []
+  availability_zones    = ["1", "2", "3"]
 
   enable_azure_rbac      = true
   admin_group_object_ids = var.aks_admin_group_ids

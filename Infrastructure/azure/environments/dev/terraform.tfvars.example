@@ -1,0 +1,47 @@
+# =============================================================================
+# DEV ENVIRONMENT - EXAMPLE VARIABLES
+# Copy this file to terraform.tfvars and fill in the values
+# =============================================================================
+
+project_name = "banking"
+location     = "eastus"
+cost_center  = "development"
+owner_email  = "devops@yourcompany.com"
+
+kubernetes_version = "1.32"
+
+# Azure AD group IDs for AKS cluster admins
+aks_admin_group_ids = [
+  # "00000000-0000-0000-0000-000000000000"
+]
+
+# Object IDs for Key Vault administrators
+keyvault_admin_object_ids = [
+  # "00000000-0000-0000-0000-000000000000"
+]
+
+# Alert receivers
+alert_email_receivers = [
+  # {
+  #   name  = "DevOps Team"
+  #   email = "devops@yourcompany.com"
+  # }
+]
+
+alert_sms_receivers = [
+  # {
+  #   name         = "On-Call Engineer"
+  #   country_code = "1"
+  #   phone_number = "5551234567"
+  # }
+]
+
+alert_webhook_receivers = [
+  # {
+  #   name        = "slack-alerts"
+  #   service_uri = "https://hooks.slack.com/services/xxx/yyy/zzz"
+  # }
+]
+
+# Set via environment variable TF_VAR_slack_webhook_url for security
+# slack_webhook_url = ""

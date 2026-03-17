@@ -72,18 +72,3 @@ variable "alert_webhook_receivers" {
   default = []
 }
 
-variable "acr_georeplications" {
-  description = "ACR geo-replication settings for staging"
-  type = list(object({
-    location                  = string
-    regional_endpoint_enabled = optional(bool, true)
-    zone_redundancy_enabled   = optional(bool, false)
-  }))
-  default = [
-    {
-      location                  = "West US 2"
-      regional_endpoint_enabled = true
-      zone_redundancy_enabled   = false
-    }
-  ]
-}
