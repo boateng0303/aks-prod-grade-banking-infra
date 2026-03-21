@@ -209,7 +209,7 @@ module "aks" {
   private_cluster_enabled             = true
   private_cluster_public_fqdn_enabled = true
 
-  sku_tier = "Standard"
+  sku_tier = "Premium"
 
   system_node_pool_vm_size   = "Standard_B2ms"
   system_node_pool_count     = 1
