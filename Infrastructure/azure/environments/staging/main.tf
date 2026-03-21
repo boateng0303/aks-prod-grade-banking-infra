@@ -129,8 +129,8 @@ module "monitoring" {
   enable_application_insights = true
   app_insights_name           = "${local.prefix}-ai"
 
-  alert_email_receivers = var.alert_email_receivers
-  alert_sms_receivers   = var.alert_sms_receivers
+  alert_email_receivers   = var.alert_email_receivers
+  alert_sms_receivers     = var.alert_sms_receivers
   alert_webhook_receivers = var.alert_webhook_receivers
 
   tags = local.common_tags
@@ -216,7 +216,7 @@ module "aks" {
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
 
-  enable_user_node_pool = false  # Disabled to save vCPUs
+  enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
   availability_zones    = ["1", "2", "3"]

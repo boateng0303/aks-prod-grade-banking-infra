@@ -84,11 +84,11 @@ resource "azurerm_application_insights" "main" {
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = var.app_insights_type
 
-  retention_in_days                       = var.app_insights_retention_days
-  daily_data_cap_in_gb                    = var.app_insights_daily_cap_gb
-  daily_data_cap_notifications_disabled   = false
-  disable_ip_masking                      = false
-  sampling_percentage                     = var.app_insights_sampling_percentage
+  retention_in_days                     = var.app_insights_retention_days
+  daily_data_cap_in_gb                  = var.app_insights_daily_cap_gb
+  daily_data_cap_notifications_disabled = false
+  disable_ip_masking                    = false
+  sampling_percentage                   = var.app_insights_sampling_percentage
 
   tags = var.tags
 }

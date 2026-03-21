@@ -9,7 +9,7 @@ terraform {
     # storage_account_name = "tfstate6bc89fe2"
     # container_name       = "tfstate"
     # key                  = "dev/terraform.tfstate"
-    
+
     # Enable state locking
     use_oidc = true
   }

@@ -126,10 +126,8 @@ resource "azurerm_kubernetes_cluster" "main" {
     prevent_destroy = true
     ignore_changes = [
       default_node_pool[0].node_count,
-      default_node_pool[0].node_taints,
       default_node_pool[0].zones,
       kubernetes_version,
-      custom_ca_trust_certificates_base64,
     ]
   }
 }
@@ -168,7 +166,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   lifecycle {
     ignore_changes = [
       node_count,
-      node_taints,
       zones,
     ]
   }

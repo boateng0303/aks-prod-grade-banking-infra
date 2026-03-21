@@ -225,7 +225,7 @@ module "aks" {
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
 
-  enable_user_node_pool = false  # Disabled to save vCPUs
+  enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
   availability_zones    = []

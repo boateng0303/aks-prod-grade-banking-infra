@@ -28,7 +28,7 @@ terraform {
 provider "azurerm" {
   features {
     key_vault {
-      purge_soft_delete_on_destroy     = false
+      purge_soft_delete_on_destroy    = false
       recover_soft_deleted_key_vaults = true
     }
     resource_group {
@@ -59,16 +59,16 @@ resource "random_string" "suffix" {
 locals {
   environment = "prod"
   prefix      = "${var.project_name}-${local.environment}"
-  location    = lower(var.location)  # Ensure lowercase
+  location    = lower(var.location) # Ensure lowercase
 
   common_tags = {
-    Environment  = local.environment
-    Project      = var.project_name
-    ManagedBy    = "Terraform"
-    CostCenter   = var.cost_center
-    Owner        = var.owner_email
-    Compliance   = "PCI-DSS"
-    DataClass    = "Confidential"
+    Environment = local.environment
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    CostCenter  = var.cost_center
+    Owner       = var.owner_email
+    Compliance  = "PCI-DSS"
+    DataClass   = "Confidential"
   }
 }
 
@@ -224,7 +224,7 @@ module "aks" {
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
 
-  enable_user_node_pool = false  # Disabled to save vCPUs
+  enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
 

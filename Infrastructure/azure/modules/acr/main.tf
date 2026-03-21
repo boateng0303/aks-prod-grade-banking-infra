@@ -27,8 +27,8 @@ resource "azurerm_container_registry" "main" {
   public_network_access_enabled = var.public_network_access_enabled
 
   zone_redundancy_enabled = var.sku == "Premium" ? var.zone_redundancy_enabled : false
-  anonymous_pull_enabled = false
-  data_endpoint_enabled  = var.sku == "Premium" ? var.data_endpoint_enabled : false
+  anonymous_pull_enabled  = false
+  data_endpoint_enabled   = var.sku == "Premium" ? var.data_endpoint_enabled : false
 
   # Network rules (Premium only)
   dynamic "network_rule_set" {
