@@ -423,53 +423,24 @@ runs:
         infracost breakdown \
           --path=tfplan.json \
           --format=json \
-          --out-file=infracost-${{ inputs.environment }}.json
-
-        MONTHLY_COST=$(jq -r '.totalMonthlyCost // "0"' infracost-${{ inputs.environment }}.json)
+          --out-file=/tmp/infracost.json
+        
+        MONTHLY_COST=$(jq -r '.totalMonthlyCost' /tmp/infracost.json)
         echo "monthly_cost=$MONTHLY_COST" >> $GITHUB_OUTPUT
-
+        
+        # Add to summary
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 💰 Cost Estimation" >> $GITHUB_STEP_SUMMARY
-        echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
         echo "Estimated monthly cost: **\$$MONTHLY_COST**" >> $GITHUB_STEP_SUMMARY
       continue-on-error: true
-    
-    
-    
-    
-    # - name: Setup Infracost
-    #   if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != ''
-    #   uses: infracost/actions/setup@v3
-    #   with:
-    #     api-key: ${{ inputs.infracost-api-key }}
 
-    # - name: Generate Infracost Report
-    #   id: infracost
-    #   if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != ''
-    #   shell: bash
-    #   working-directory: ${{ inputs.working-directory }}/${{ inputs.environment }}
-    #   run: |
-    #     infracost breakdown \
-    #       --path=tfplan.json \
-    #       --format=json \
-    #       --out-file=/tmp/infracost.json
-        
-    #     MONTHLY_COST=$(jq -r '.totalMonthlyCost' /tmp/infracost.json)
-    #     echo "monthly_cost=$MONTHLY_COST" >> $GITHUB_OUTPUT
-        
-    #     # Add to summary
-    #     echo "" >> $GITHUB_STEP_SUMMARY
-    #     echo "### 💰 Cost Estimation" >> $GITHUB_STEP_SUMMARY
-    #     echo "Estimated monthly cost: **\$$MONTHLY_COST**" >> $GITHUB_STEP_SUMMARY
-    #   continue-on-error: true
-
-    # - name: Post Infracost Comment
-    #   if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != '' && github.event_name == 'pull_request'
-    #   uses: infracost/actions/comment@v1
-    #   with:
-    #     path: /tmp/infracost.json
-    #     behavior: update
-    #   continue-on-error: true
+    - name: Post Infracost Comment
+      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != '' && github.event_name == 'pull_request'
+      uses: infracost/actions/comment@v1
+      with:
+        path: /tmp/infracost.json
+        behavior: update
+      continue-on-error: true
 
     # ============================================
     # PR COMMENT
@@ -717,7 +688,7 @@ runs:
         path: |
           ${{ inputs.working-directory }}/${{ inputs.environment }}/tfplan.json
           ${{ inputs.working-directory }}/${{ inputs.environment }}/plan_output.txt
-          ${{ inputs.working-directory }}/${{ inputs.environment }}/infracost-${{ inputs.environment }}.json
+         
         retention-days: 30
       continue-on-error: true
 
