@@ -32,7 +32,7 @@ alert_sms_receivers = [
   # {
   #   name         = "On-Call Engineer"
   #   country_code = "1"
-  #   phone_number = "5551234567"
+  #   phone_number = "5751234567"
   # }
 ]
 
