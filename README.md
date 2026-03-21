@@ -119,7 +119,10 @@ Run on your **local machine** to configure passwordless authentication for CI/CD
 ```bash
 # Replace with your GitHub organization/username and repository name
 export GITHUB_ORG="your-org"
-export GITHUB_REPO="reuel-banking-infra"
+export GITHUB_REPO="aks-prod-grade-banking-infra"
+
+# Add this at the top before running using Git Bash
+export MSYS_NO_PATHCONV=1
 
 chmod +x scripts/setup-oidc.sh
 ./scripts/setup-oidc.sh
