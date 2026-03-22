@@ -123,7 +123,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   tags = var.tags
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       default_node_pool[0].node_count,
       default_node_pool[0].zones,
