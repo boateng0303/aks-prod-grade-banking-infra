@@ -211,7 +211,7 @@ module "aks" {
 
   sku_tier = "Standard"
 
-  system_node_pool_vm_size   = "Standard_B2ms"
+  system_node_pool_vm_size   = "Standard_DC2as_v5"
   system_node_pool_count     = 1
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3

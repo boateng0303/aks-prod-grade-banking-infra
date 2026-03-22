@@ -219,7 +219,7 @@ module "aks" {
   sku_tier                  = "Standard"
   automatic_channel_upgrade = "stable"
 
-  system_node_pool_vm_size   = "Standard_B2ms"
+  system_node_pool_vm_size   = "Standard_DC2as_v5"
   system_node_pool_count     = 1
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
@@ -266,7 +266,7 @@ resource "azurerm_recovery_services_vault" "main" {
   tags = local.common_tags
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 

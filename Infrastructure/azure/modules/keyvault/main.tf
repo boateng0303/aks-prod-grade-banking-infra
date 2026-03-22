@@ -52,7 +52,7 @@ resource "azurerm_key_vault" "main" {
   tags = var.tags
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       network_acls[0].ip_rules,
       network_acls[0].virtual_network_subnet_ids,
