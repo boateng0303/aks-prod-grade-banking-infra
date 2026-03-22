@@ -40,8 +40,36 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+*.pfx
+*.p12
 credentials.json
 service-account.json
+
+# Azure credentials
+.azure/
+azure.json
+azureauth.json
+
+# Kubernetes
+kubeconfig
+kubeconfig.*
+.kube/
+*.kubeconfig
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Backend config (may contain storage keys)
+backend.hcl
+*.backend.hcl
+
+# Secrets
+secrets/
+*secret*
+!*secret*.example
+*.secrets.json
 
 # Infracost
 .infracost/

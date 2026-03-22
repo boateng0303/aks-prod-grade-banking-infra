@@ -68,3 +68,13 @@ variable "slack_webhook_url" {
   default     = ""
   sensitive   = true
 }
+
+variable "alert_sms_receivers" {
+  description = "SMS receivers for critical alerts"
+  type = list(object({
+    name         = string
+    country_code = string
+    phone_number = string
+  }))
+  default = []
+}

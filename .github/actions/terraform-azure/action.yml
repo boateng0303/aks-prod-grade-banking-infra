@@ -423,9 +423,9 @@ runs:
         infracost breakdown \
           --path=tfplan.json \
           --format=json \
-          --out-file=/tmp/infracost.json
+          --out-file=/tmp/infracost-${{ inputs.environment }}.json
         
-        MONTHLY_COST=$(jq -r '.totalMonthlyCost' /tmp/infracost.json)
+        MONTHLY_COST=$(jq -r '.totalMonthlyCost' /tmp/infracost-${{ inputs.environment }}.json)
         echo "monthly_cost=$MONTHLY_COST" >> $GITHUB_OUTPUT
         
         # Add to summary
@@ -434,12 +434,13 @@ runs:
         echo "Estimated monthly cost: **\$$MONTHLY_COST**" >> $GITHUB_STEP_SUMMARY
       continue-on-error: true
 
-    - name: Post Infracost Comment
-      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != '' && github.event_name == 'pull_request'
-      uses: infracost/actions/comment@v1
+    - name: Upload Infracost Report
+      if: inputs.enable-cost-estimation == 'true' && inputs.infracost-api-key != ''
+      uses: actions/upload-artifact@v4
       with:
-        path: /tmp/infracost.json
-        behavior: update
+        name: infracost-${{ inputs.environment }}
+        path: /tmp/infracost-${{ inputs.environment }}.json
+        retention-days: 1
       continue-on-error: true
 
     # ============================================
@@ -688,6 +689,7 @@ runs:
         path: |
           ${{ inputs.working-directory }}/${{ inputs.environment }}/tfplan.json
           ${{ inputs.working-directory }}/${{ inputs.environment }}/plan_output.txt
+         
         retention-days: 30
       continue-on-error: true
 

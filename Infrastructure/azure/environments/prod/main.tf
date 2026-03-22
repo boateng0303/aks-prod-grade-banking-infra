@@ -28,7 +28,7 @@ terraform {
 provider "azurerm" {
   features {
     key_vault {
-      purge_soft_delete_on_destroy     = false
+      purge_soft_delete_on_destroy    = false
       recover_soft_deleted_key_vaults = true
     }
     resource_group {
@@ -59,16 +59,16 @@ resource "random_string" "suffix" {
 locals {
   environment = "prod"
   prefix      = "${var.project_name}-${local.environment}"
-  location    = lower(var.location)  # Ensure lowercase
+  location    = lower(var.location) # Ensure lowercase
 
   common_tags = {
-    Environment  = local.environment
-    Project      = var.project_name
-    ManagedBy    = "Terraform"
-    CostCenter   = var.cost_center
-    Owner        = var.owner_email
-    Compliance   = "PCI-DSS"
-    DataClass    = "Confidential"
+    Environment = local.environment
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    CostCenter  = var.cost_center
+    Owner       = var.owner_email
+    Compliance  = "PCI-DSS"
+    DataClass   = "Confidential"
   }
 }
 
@@ -81,7 +81,7 @@ module "resource_group" {
 
   name               = "${local.prefix}-rg"
   location           = local.location
-  enable_delete_lock = false
+  enable_delete_lock = true
   tags               = local.common_tags
 }
 
@@ -182,11 +182,11 @@ module "keyvault" {
   enable_rbac_authorization     = true
   purge_protection_enabled      = true
   soft_delete_retention_days    = 90
-  public_network_access_enabled = true
-  network_acls_default_action   = "Allow"
+  public_network_access_enabled = false
+  network_acls_default_action   = "Deny"
   enabled_for_disk_encryption   = true
 
-  enable_private_endpoint    = false
+  enable_private_endpoint    = true
   private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
   private_dns_zone_id        = module.networking.keyvault_private_dns_zone_id
 
@@ -216,7 +216,7 @@ module "aks" {
   private_cluster_enabled             = true
   private_cluster_public_fqdn_enabled = false
 
-  sku_tier                  = "Premium"
+  sku_tier                  = "Standard"
   automatic_channel_upgrade = "stable"
 
   system_node_pool_vm_size   = "Standard_B2ms"
@@ -224,11 +224,11 @@ module "aks" {
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
 
-  enable_user_node_pool = false  # Disabled to save vCPUs
+  enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
 
-  availability_zones = []
+  availability_zones = ["1", "2", "3"]
   max_pods_per_node  = 50
 
   enable_azure_rbac      = true
@@ -237,7 +237,7 @@ module "aks" {
   enable_workload_identity = true
   enable_azure_policy      = true
 
-  outbound_type = "userDefinedRouting"
+  outbound_type = "loadBalancer"
 
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
   acr_id                     = module.acr.id
@@ -261,7 +261,13 @@ resource "azurerm_recovery_services_vault" "main" {
   sku                 = "Standard"
 
   soft_delete_enabled = true
-  tags                = local.common_tags
+  immutability        = "Unlocked"
+
+  tags = local.common_tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # -----------------------------------------------------------------------------

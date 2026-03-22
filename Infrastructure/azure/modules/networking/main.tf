@@ -128,14 +128,44 @@ resource "azurerm_network_security_group" "aks" {
   tags                = var.tags
 }
 
-resource "azurerm_network_security_rule" "aks_https" {
-  name                        = "AllowHTTPS"
+resource "azurerm_network_security_rule" "aks_https_from_appgw" {
+  count = var.enable_application_gateway ? 1 : 0
+
+  name                        = "AllowHTTPSFromAppGateway"
   priority                    = 100
   direction                   = "Inbound"
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "443"
+  source_address_prefix       = var.appgw_subnet_cidr
+  destination_address_prefix  = var.aks_subnet_cidr
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_https_internal" {
+  name                        = "AllowHTTPSInternal"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = var.aks_subnet_cidr
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_deny_all_inbound" {
+  name                        = "DenyAllInbound"
+  priority                    = 4096
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
   source_address_prefix       = "*"
   destination_address_prefix  = "*"
   resource_group_name         = var.resource_group_name
@@ -169,6 +199,20 @@ resource "azurerm_network_security_rule" "db_mysql" {
   source_port_range           = "*"
   destination_port_range      = "3306"
   source_address_prefix       = var.aks_subnet_cidr
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.database.name
+}
+
+resource "azurerm_network_security_rule" "db_deny_all_inbound" {
+  name                        = "DenyAllInbound"
+  priority                    = 4096
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
   destination_address_prefix  = "*"
   resource_group_name         = var.resource_group_name
   network_security_group_name = azurerm_network_security_group.database.name

@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 RESOURCE_GROUP_NAME="${TF_BACKEND_RG:-tfstate-rg}"
 STORAGE_ACCOUNT_NAME="${TF_BACKEND_SA:-tfstate$(openssl rand -hex 4)}"
 CONTAINER_NAME="${TF_BACKEND_CONTAINER:-tfstate}"
-LOCATION="${TF_BACKEND_LOCATION:-eastus2}"
+LOCATION="${TF_BACKEND_LOCATION:-eastus}"
 
 echo -e "${GREEN}=============================================${NC}"
 echo -e "${GREEN}Terraform Backend Setup${NC}"

@@ -9,7 +9,7 @@ terraform {
     # storage_account_name = "tfstate6bc89fe2"
     # container_name       = "tfstate"
     # key                  = "staging/terraform.tfstate"
-    
+
     use_oidc = true
   }
 }

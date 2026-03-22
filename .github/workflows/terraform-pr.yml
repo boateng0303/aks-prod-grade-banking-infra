@@ -26,51 +26,15 @@ permissions:
 
 jobs:
   # ============================================
-  # DETECT CHANGED ENVIRONMENTS
-  # ============================================
-  detect-changes:
-    name: Detect Changed Environments
-    runs-on: ubuntu-latest
-    outputs:
-      environments: ${{ steps.changes.outputs.environments }}
-      has_changes: ${{ steps.changes.outputs.has_changes }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect Changed Environments
-        id: changes
-        run: |
-          # Get changed files in Infrastructure/azure/environments
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^Infrastructure/azure/environments/' || true)
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No infrastructure changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "environments=[]" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # Extract unique environment names (compact JSON for GitHub Actions)
-          ENVS=$(echo "$CHANGED_FILES" | cut -d'/' -f4 | sort -u | jq -R . | jq -sc .)
-          echo "Detected environments: $ENVS"
-          echo "environments=$ENVS" >> $GITHUB_OUTPUT
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-
-  # ============================================
-  # TERRAFORM PLAN FOR EACH ENVIRONMENT
+  # TERRAFORM PLAN FOR ALL ENVIRONMENTS
   # ============================================
   plan:
     name: Plan - ${{ matrix.environment }}
     runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'true'
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJson(needs.detect-changes.outputs.environments) }}
+        environment: [dev, staging, prod]
     
     steps:
       - name: Checkout
@@ -94,45 +58,56 @@ jobs:
           plan-title: '🏗️ Terraform Plan'
 
   # ============================================
+  # COMBINED INFRACOST REPORT
+  # ============================================
+  infracost-report:
+    name: Combined Cost Report
+    runs-on: ubuntu-latest
+    needs: plan
+    if: always() && !cancelled()
+    steps:
+      - name: Download all Infracost artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: infracost-*
+          path: /tmp/infracost
+          merge-multiple: false
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Combine Infracost Reports
+        run: |
+          # Find all infracost JSON files
+          find /tmp/infracost -name "*.json" -type f
+          
+          # Combine all reports into one
+          infracost output \
+            --path "/tmp/infracost/*/*.json" \
+            --format json \
+            --out-file /tmp/infracost-combined.json
+          
+          echo "Combined report generated:"
+          cat /tmp/infracost-combined.json | jq '.totalMonthlyCost'
+
+      - name: Post Combined Infracost Comment
+        uses: infracost/actions/comment@v1
+        with:
+          path: /tmp/infracost-combined.json
+          behavior: update
+
+  # ============================================
   # SECURITY GATE
   # ============================================
   security-gate:
     name: Security Gate
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, infracost-report]
+    if: always() && !cancelled()
     steps:
       - name: Security Check Passed
         run: |
           echo "✅ All security checks passed"
           echo "PR is ready for review"
-
-  # ============================================
-  # PLAN ALL (when no specific env changes detected)
-  # ============================================
-  plan-all:
-    name: Plan All Environments
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: [dev, staging, prod]
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Terraform Plan
-        uses: ./.github/actions/terraform-azure
-        with:
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          environment: ${{ matrix.environment }}
-          operation: plan
-          backend-resource-group: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
-          backend-storage-account: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
-          enable-security-scan: 'true'
-          github-token: ${{ secrets.MY_TOKEN }}
-          plan-title: '🏗️ Terraform Plan (Full)'

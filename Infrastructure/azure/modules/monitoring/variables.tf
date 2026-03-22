@@ -43,7 +43,7 @@ variable "retention_in_days" {
 variable "daily_quota_gb" {
   description = "Daily data ingestion quota in GB (-1 for unlimited)"
   type        = number
-  default     = -1
+  default     = 10
 }
 
 variable "reservation_capacity" {

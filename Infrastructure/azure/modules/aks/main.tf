@@ -113,19 +113,21 @@ resource "azurerm_kubernetes_cluster" "main" {
     msi_auth_for_monitoring_enabled = true
   }
 
-  microsoft_defender {
-    log_analytics_workspace_id = var.log_analytics_workspace_id
+  dynamic "microsoft_defender" {
+    for_each = var.sku_tier != "Free" && var.log_analytics_workspace_id != null ? [1] : []
+    content {
+      log_analytics_workspace_id = var.log_analytics_workspace_id
+    }
   }
 
   tags = var.tags
 
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       default_node_pool[0].node_count,
-      default_node_pool[0].node_taints,
       default_node_pool[0].zones,
       kubernetes_version,
-      custom_ca_trust_certificates_base64,
     ]
   }
 }
@@ -164,7 +166,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   lifecycle {
     ignore_changes = [
       node_count,
-      node_taints,
       zones,
     ]
   }
