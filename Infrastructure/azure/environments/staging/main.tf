@@ -143,7 +143,7 @@ module "monitoring" {
 module "acr" {
   source = "../../modules/acr"
 
-  name                = replace("${var.project_name}${local.environment}acr", "-", "")
+  name                = replace("${var.project_name}${local.environment}${random_string.suffix.result}acr", "-", "")
   location            = local.location
   resource_group_name = module.resource_group.name
 
@@ -219,7 +219,7 @@ module "aks" {
   enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
-  availability_zones    = ["1", "2", "3"]
+  availability_zones    = ["2", "3"]
 
   enable_azure_rbac      = true
   admin_group_object_ids = var.aks_admin_group_ids

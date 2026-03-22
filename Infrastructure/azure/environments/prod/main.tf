@@ -145,7 +145,7 @@ module "monitoring" {
 module "acr" {
   source = "../../modules/acr"
 
-  name                = replace("${var.project_name}${local.environment}acr", "-", "")
+  name                = replace("${var.project_name}${local.environment}${random_string.suffix.result}acr", "-", "")
   location            = local.location
   resource_group_name = module.resource_group.name
 
@@ -228,7 +228,7 @@ module "aks" {
 
   enable_spot_node_pool = false
 
-  availability_zones = ["1", "2", "3"]
+  availability_zones = ["2", "3"]
   max_pods_per_node  = 50
 
   enable_azure_rbac      = true

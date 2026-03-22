@@ -154,7 +154,7 @@ module "monitoring" {
 module "acr" {
   source = "../../modules/acr"
 
-  name                = replace("${var.project_name}${local.environment}acr", "-", "")
+  name                = replace("${var.project_name}${local.environment}${random_string.suffix.result}acr", "-", "")
   location            = local.location
   resource_group_name = module.resource_group.name
 
