@@ -106,7 +106,7 @@ module "networking" {
   bastion_subnet_cidr          = "10.0.7.0/26"
 
   enable_application_gateway = true
-  enable_nat_gateway         = true
+  enable_nat_gateway         = false  # Disabled to stay within 3 public IP quota
   enable_bastion             = false
 
   tags = local.common_tags
