@@ -679,11 +679,61 @@ runs:
         
         if [ $APPLY_EXIT_CODE -ne 0 ]; then
           echo "::error::Terraform apply failed"
-          exit 1
+          echo "apply_failed=true" >> $GITHUB_OUTPUT
+        else
+          echo "apply_failed=false" >> $GITHUB_OUTPUT
+          echo "### ✅ Apply Completed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
         fi
+
+    # ============================================
+    # POST-FAILURE CLEANUP (Orphaned Diagnostic Settings)
+    # ============================================
+    - name: Cleanup Orphaned Diagnostic Settings (Post-Failure)
+      if: inputs.operation == 'apply' && steps.apply.outputs.apply_failed == 'true'
+      shell: bash
+      continue-on-error: true
+      run: |
+        echo "::warning::Apply failed - cleaning up orphaned diagnostic settings"
         
-        echo "### ✅ Apply Completed Successfully" >> $GITHUB_STEP_SUMMARY
-        echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+        RG_NAME="banking-${{ inputs.environment }}-rg"
+        
+        # Delete AKS diagnostic setting if exists
+        az monitor diagnostic-settings delete \
+          --name "banking-${{ inputs.environment }}-aks-diagnostics" \
+          --resource-group "$RG_NAME" \
+          --resource "banking-${{ inputs.environment }}-aks" \
+          --resource-type Microsoft.ContainerService/managedClusters \
+          2>/dev/null || true
+        
+        # Delete ACR diagnostic setting if exists (with random suffix)
+        for ACR in $(az acr list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
+          az monitor diagnostic-settings delete \
+            --name "${ACR}-diagnostics" \
+            --resource-group "$RG_NAME" \
+            --resource "$ACR" \
+            --resource-type Microsoft.ContainerRegistry/registries \
+            2>/dev/null || true
+        done
+        
+        # Delete Key Vault diagnostic settings
+        for KV in $(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
+          az monitor diagnostic-settings delete \
+            --name "${KV}-diagnostics" \
+            --resource-group "$RG_NAME" \
+            --resource "$KV" \
+            --resource-type Microsoft.KeyVault/vaults \
+            2>/dev/null || true
+        done
+        
+        echo "::notice::Post-failure cleanup complete"
+
+    - name: Exit on Apply Failure
+      if: inputs.operation == 'apply' && steps.apply.outputs.apply_failed == 'true'
+      shell: bash
+      run: |
+        echo "::error::Terraform apply failed - check logs above"
+        exit 1
 
     # ============================================
     # TERRAFORM DESTROY
