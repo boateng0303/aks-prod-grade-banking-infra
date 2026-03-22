@@ -626,6 +626,16 @@ runs:
           exit 0
         fi
         
+        # Temporarily remove delete lock if it exists (prevents cleanup)
+        LOCK_NAME="${RG_NAME}-delete-lock"
+        if az lock show --name "$LOCK_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+          echo "Temporarily removing delete lock for cleanup..."
+          az lock delete --name "$LOCK_NAME" --resource-group "$RG_NAME" || true
+          LOCK_REMOVED="true"
+        else
+          LOCK_REMOVED="false"
+        fi
+        
         # Function to delete ALL diagnostic settings for a resource using its full ID
         delete_all_diag_settings() {
           local RESOURCE_ID="$1"
@@ -658,7 +668,8 @@ runs:
           delete_all_diag_settings "$KV_ID" "KeyVault"
         done
         
-        echo "::notice::Pre-apply cleanup complete"
+        # Note: Lock will be re-created by Terraform if enable_delete_lock = true
+        echo "::notice::Pre-apply cleanup complete (lock will be re-created by Terraform if configured)"
 
     # ============================================
     # TERRAFORM APPLY
@@ -714,6 +725,13 @@ runs:
         if ! az group show --name "$RG_NAME" &>/dev/null; then
           echo "Resource group $RG_NAME does not exist - skipping cleanup"
           exit 0
+        fi
+        
+        # Remove delete lock if it exists (prevents cleanup)
+        LOCK_NAME="${RG_NAME}-delete-lock"
+        if az lock show --name "$LOCK_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+          echo "Removing delete lock for post-failure cleanup..."
+          az lock delete --name "$LOCK_NAME" --resource-group "$RG_NAME" || true
         fi
         
         # Function to delete ALL diagnostic settings for a resource
