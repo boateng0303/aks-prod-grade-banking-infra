@@ -628,13 +628,16 @@ runs:
           --resource-type Microsoft.ContainerService/managedClusters \
           2>/dev/null || echo "AKS diagnostic setting not found or already deleted"
         
-        # Delete ACR diagnostic setting if exists
-        az monitor diagnostic-settings delete \
-          --name "banking${{ inputs.environment }}acr-diagnostics" \
-          --resource-group "$RG_NAME" \
-          --resource "banking${{ inputs.environment }}acr" \
-          --resource-type Microsoft.ContainerRegistry/registries \
-          2>/dev/null || echo "ACR diagnostic setting not found or already deleted"
+        # Delete ACR diagnostic settings (name includes random suffix)
+        # Find all ACRs in the resource group and delete their diagnostic settings
+        for ACR in $(az acr list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
+          az monitor diagnostic-settings delete \
+            --name "${ACR}-diagnostics" \
+            --resource-group "$RG_NAME" \
+            --resource "$ACR" \
+            --resource-type Microsoft.ContainerRegistry/registries \
+            2>/dev/null || echo "ACR diagnostic setting for $ACR not found or already deleted"
+        done
         
         # Delete Key Vault diagnostic settings (name includes random suffix)
         # Find all Key Vaults in the resource group and delete their diagnostic settings
