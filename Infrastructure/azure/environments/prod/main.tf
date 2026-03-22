@@ -219,7 +219,7 @@ module "aks" {
   sku_tier                  = "Standard"
   automatic_channel_upgrade = "stable"
 
-  system_node_pool_vm_size   = "Standard_DC2as_v5"
+  system_node_pool_vm_size   = "Standard_DC2s_v3"
   system_node_pool_count     = 1
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
@@ -228,7 +228,7 @@ module "aks" {
 
   enable_spot_node_pool = false
 
-  availability_zones = ["2", "3"]
+  availability_zones = ["3"]
   max_pods_per_node  = 50
 
   enable_azure_rbac      = true

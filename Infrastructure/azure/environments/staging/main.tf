@@ -211,7 +211,7 @@ module "aks" {
 
   sku_tier = "Standard"
 
-  system_node_pool_vm_size   = "Standard_DC2as_v5"
+  system_node_pool_vm_size   = "Standard_DC2s_v3"
   system_node_pool_count     = 1
   system_node_pool_min_count = 1
   system_node_pool_max_count = 3
@@ -219,7 +219,7 @@ module "aks" {
   enable_user_node_pool = false # Disabled to save vCPUs
 
   enable_spot_node_pool = false
-  availability_zones    = ["2", "3"]
+  availability_zones    = ["3"]
 
   enable_azure_rbac      = true
   admin_group_object_ids = var.aks_admin_group_ids
