@@ -608,6 +608,48 @@ runs:
         fi
 
     # ============================================
+    # CLEANUP ORPHANED DIAGNOSTIC SETTINGS
+    # ============================================
+    - name: Cleanup Orphaned Diagnostic Settings
+      if: inputs.operation == 'apply'
+      shell: bash
+      continue-on-error: true
+      run: |
+        echo "::notice::Cleaning up any orphaned diagnostic settings..."
+        
+        # Get resource group name
+        RG_NAME="banking-${{ inputs.environment }}-rg"
+        
+        # Delete AKS diagnostic setting if exists
+        az monitor diagnostic-settings delete \
+          --name "banking-${{ inputs.environment }}-aks-diagnostics" \
+          --resource-group "$RG_NAME" \
+          --resource "banking-${{ inputs.environment }}-aks" \
+          --resource-type Microsoft.ContainerService/managedClusters \
+          2>/dev/null || echo "AKS diagnostic setting not found or already deleted"
+        
+        # Delete ACR diagnostic setting if exists
+        az monitor diagnostic-settings delete \
+          --name "banking${{ inputs.environment }}acr-diagnostics" \
+          --resource-group "$RG_NAME" \
+          --resource "banking${{ inputs.environment }}acr" \
+          --resource-type Microsoft.ContainerRegistry/registries \
+          2>/dev/null || echo "ACR diagnostic setting not found or already deleted"
+        
+        # Delete Key Vault diagnostic settings (name includes random suffix)
+        # Find all Key Vaults in the resource group and delete their diagnostic settings
+        for KV in $(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
+          az monitor diagnostic-settings delete \
+            --name "${KV}-diagnostics" \
+            --resource-group "$RG_NAME" \
+            --resource "$KV" \
+            --resource-type Microsoft.KeyVault/vaults \
+            2>/dev/null || echo "Key Vault diagnostic setting for $KV not found or already deleted"
+        done
+        
+        echo "::notice::Cleanup complete"
+
+    # ============================================
     # TERRAFORM APPLY
     # ============================================
     - name: Terraform Apply
