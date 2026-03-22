@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.85"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
@@ -173,6 +177,27 @@ resource "azurerm_container_registry_webhook" "main" {
 }
 
 # ---------------------------------------------------------------------------
+# Diagnostic Settings Cleanup (prevents orphaned resource conflicts)
+# ---------------------------------------------------------------------------
+
+resource "null_resource" "cleanup_acr_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
+
+  triggers = {
+    acr_id          = azurerm_container_registry.main.id
+    diagnostic_name = "${var.name}-diagnostics"
+  }
+
+  provisioner "local-exec" {
+    command     = "az monitor diagnostic-settings delete --resource ${azurerm_container_registry.main.id} --name ${var.name}-diagnostics 2>/dev/null || true"
+    interpreter = ["bash", "-c"]
+    on_failure  = continue
+  }
+
+  depends_on = [azurerm_container_registry.main]
+}
+
+# ---------------------------------------------------------------------------
 # Diagnostic Settings
 # ---------------------------------------------------------------------------
 
@@ -197,6 +222,7 @@ resource "azurerm_monitor_diagnostic_setting" "acr" {
   }
 
   depends_on = [
-    azurerm_container_registry.main
+    azurerm_container_registry.main,
+    null_resource.cleanup_acr_diagnostics
   ]
 }

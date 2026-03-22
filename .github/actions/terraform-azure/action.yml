@@ -617,40 +617,48 @@ runs:
       run: |
         echo "::notice::Cleaning up any orphaned diagnostic settings..."
         
-        # Get resource group name
         RG_NAME="banking-${{ inputs.environment }}-rg"
+        SUB_ID="${{ inputs.azure-subscription-id }}"
         
-        # Delete AKS diagnostic setting if exists
-        az monitor diagnostic-settings delete \
-          --name "banking-${{ inputs.environment }}-aks-diagnostics" \
-          --resource-group "$RG_NAME" \
-          --resource "banking-${{ inputs.environment }}-aks" \
-          --resource-type Microsoft.ContainerService/managedClusters \
-          2>/dev/null || echo "AKS diagnostic setting not found or already deleted"
+        # Check if resource group exists first
+        if ! az group show --name "$RG_NAME" &>/dev/null; then
+          echo "Resource group $RG_NAME does not exist yet - skipping cleanup"
+          exit 0
+        fi
         
-        # Delete ACR diagnostic settings (name includes random suffix)
-        # Find all ACRs in the resource group and delete their diagnostic settings
-        for ACR in $(az acr list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
-          az monitor diagnostic-settings delete \
-            --name "${ACR}-diagnostics" \
-            --resource-group "$RG_NAME" \
-            --resource "$ACR" \
-            --resource-type Microsoft.ContainerRegistry/registries \
-            2>/dev/null || echo "ACR diagnostic setting for $ACR not found or already deleted"
+        # Function to delete ALL diagnostic settings for a resource using its full ID
+        delete_all_diag_settings() {
+          local RESOURCE_ID="$1"
+          local RESOURCE_TYPE="$2"
+          
+          # List all diagnostic settings for this resource and delete them
+          for DIAG_NAME in $(az monitor diagnostic-settings list --resource "$RESOURCE_ID" --query "[].name" -o tsv 2>/dev/null); do
+            echo "Deleting diagnostic setting: $DIAG_NAME for $RESOURCE_TYPE"
+            az monitor diagnostic-settings delete --resource "$RESOURCE_ID" --name "$DIAG_NAME" 2>/dev/null || true
+          done
+        }
+        
+        # Cleanup AKS diagnostic settings
+        AKS_NAME="banking-${{ inputs.environment }}-aks"
+        AKS_ID="/subscriptions/${SUB_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}"
+        if az aks show --name "$AKS_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+          echo "Cleaning up AKS diagnostic settings..."
+          delete_all_diag_settings "$AKS_ID" "AKS"
+        fi
+        
+        # Cleanup ACR diagnostic settings (handles random suffix in name)
+        for ACR_ID in $(az acr list --resource-group "$RG_NAME" --query "[].id" -o tsv 2>/dev/null); do
+          echo "Cleaning up ACR diagnostic settings for: $ACR_ID"
+          delete_all_diag_settings "$ACR_ID" "ACR"
         done
         
-        # Delete Key Vault diagnostic settings (name includes random suffix)
-        # Find all Key Vaults in the resource group and delete their diagnostic settings
-        for KV in $(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
-          az monitor diagnostic-settings delete \
-            --name "${KV}-diagnostics" \
-            --resource-group "$RG_NAME" \
-            --resource "$KV" \
-            --resource-type Microsoft.KeyVault/vaults \
-            2>/dev/null || echo "Key Vault diagnostic setting for $KV not found or already deleted"
+        # Cleanup Key Vault diagnostic settings (handles random suffix in name)
+        for KV_ID in $(az keyvault list --resource-group "$RG_NAME" --query "[].id" -o tsv 2>/dev/null); do
+          echo "Cleaning up Key Vault diagnostic settings for: $KV_ID"
+          delete_all_diag_settings "$KV_ID" "KeyVault"
         done
         
-        echo "::notice::Cleanup complete"
+        echo "::notice::Pre-apply cleanup complete"
 
     # ============================================
     # TERRAFORM APPLY
@@ -700,33 +708,38 @@ runs:
         echo "::warning::Apply failed - cleaning up orphaned diagnostic settings"
         
         RG_NAME="banking-${{ inputs.environment }}-rg"
+        SUB_ID="${{ inputs.azure-subscription-id }}"
         
-        # Delete AKS diagnostic setting if exists
-        az monitor diagnostic-settings delete \
-          --name "banking-${{ inputs.environment }}-aks-diagnostics" \
-          --resource-group "$RG_NAME" \
-          --resource "banking-${{ inputs.environment }}-aks" \
-          --resource-type Microsoft.ContainerService/managedClusters \
-          2>/dev/null || true
+        # Check if resource group exists
+        if ! az group show --name "$RG_NAME" &>/dev/null; then
+          echo "Resource group $RG_NAME does not exist - skipping cleanup"
+          exit 0
+        fi
         
-        # Delete ACR diagnostic setting if exists (with random suffix)
-        for ACR in $(az acr list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
-          az monitor diagnostic-settings delete \
-            --name "${ACR}-diagnostics" \
-            --resource-group "$RG_NAME" \
-            --resource "$ACR" \
-            --resource-type Microsoft.ContainerRegistry/registries \
-            2>/dev/null || true
+        # Function to delete ALL diagnostic settings for a resource
+        delete_all_diag_settings() {
+          local RESOURCE_ID="$1"
+          for DIAG_NAME in $(az monitor diagnostic-settings list --resource "$RESOURCE_ID" --query "[].name" -o tsv 2>/dev/null); do
+            echo "Deleting orphaned diagnostic setting: $DIAG_NAME"
+            az monitor diagnostic-settings delete --resource "$RESOURCE_ID" --name "$DIAG_NAME" 2>/dev/null || true
+          done
+        }
+        
+        # Cleanup AKS
+        AKS_NAME="banking-${{ inputs.environment }}-aks"
+        AKS_ID="/subscriptions/${SUB_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}"
+        if az aks show --name "$AKS_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+          delete_all_diag_settings "$AKS_ID"
+        fi
+        
+        # Cleanup ACR
+        for ACR_ID in $(az acr list --resource-group "$RG_NAME" --query "[].id" -o tsv 2>/dev/null); do
+          delete_all_diag_settings "$ACR_ID"
         done
         
-        # Delete Key Vault diagnostic settings
-        for KV in $(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null); do
-          az monitor diagnostic-settings delete \
-            --name "${KV}-diagnostics" \
-            --resource-group "$RG_NAME" \
-            --resource "$KV" \
-            --resource-type Microsoft.KeyVault/vaults \
-            2>/dev/null || true
+        # Cleanup Key Vault
+        for KV_ID in $(az keyvault list --resource-group "$RG_NAME" --query "[].id" -o tsv 2>/dev/null); do
+          delete_all_diag_settings "$KV_ID"
         done
         
         echo "::notice::Post-failure cleanup complete"

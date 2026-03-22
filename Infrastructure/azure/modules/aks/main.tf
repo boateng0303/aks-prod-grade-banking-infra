@@ -14,6 +14,10 @@ terraform {
       source  = "hashicorp/azuread"
       version = "~> 2.47"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
@@ -224,7 +228,28 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
 }
 
 # -----------------------------------------------------------------------------
-# DIAGNOSTIC SETTINGS (ORDER FIXED)
+# DIAGNOSTIC SETTINGS CLEANUP (prevents orphaned resource conflicts)
+# -----------------------------------------------------------------------------
+
+resource "null_resource" "cleanup_aks_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
+
+  triggers = {
+    aks_id          = azurerm_kubernetes_cluster.main.id
+    diagnostic_name = "${var.cluster_name}-diagnostics"
+  }
+
+  provisioner "local-exec" {
+    command     = "az monitor diagnostic-settings delete --resource ${azurerm_kubernetes_cluster.main.id} --name ${var.cluster_name}-diagnostics 2>/dev/null || true"
+    interpreter = ["bash", "-c"]
+    on_failure  = continue
+  }
+
+  depends_on = [azurerm_kubernetes_cluster.main]
+}
+
+# -----------------------------------------------------------------------------
+# DIAGNOSTIC SETTINGS
 # -----------------------------------------------------------------------------
 
 resource "azurerm_monitor_diagnostic_setting" "aks" {
@@ -243,5 +268,8 @@ resource "azurerm_monitor_diagnostic_setting" "aks" {
     enabled  = true
   }
 
-  depends_on = [azurerm_kubernetes_cluster.main]
+  depends_on = [
+    azurerm_kubernetes_cluster.main,
+    null_resource.cleanup_aks_diagnostics
+  ]
 }

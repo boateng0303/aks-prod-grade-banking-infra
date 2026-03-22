@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.85"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
@@ -164,6 +168,27 @@ resource "azurerm_private_endpoint" "keyvault" {
 }
 
 # -----------------------------------------------------------------------------
+# Diagnostic Settings Cleanup (prevents orphaned resource conflicts)
+# -----------------------------------------------------------------------------
+
+resource "null_resource" "cleanup_keyvault_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
+
+  triggers = {
+    keyvault_id     = azurerm_key_vault.main.id
+    diagnostic_name = "${var.name}-diagnostics"
+  }
+
+  provisioner "local-exec" {
+    command     = "az monitor diagnostic-settings delete --resource ${azurerm_key_vault.main.id} --name ${var.name}-diagnostics 2>/dev/null || true"
+    interpreter = ["bash", "-c"]
+    on_failure  = continue
+  }
+
+  depends_on = [azurerm_key_vault.main]
+}
+
+# -----------------------------------------------------------------------------
 # Diagnostic Settings
 # -----------------------------------------------------------------------------
 
@@ -186,4 +211,9 @@ resource "azurerm_monitor_diagnostic_setting" "keyvault" {
     category = "AllMetrics"
     enabled  = true
   }
+
+  depends_on = [
+    azurerm_key_vault.main,
+    null_resource.cleanup_keyvault_diagnostics
+  ]
 }
