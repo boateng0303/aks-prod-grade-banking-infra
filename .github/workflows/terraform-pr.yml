@@ -58,12 +58,54 @@ jobs:
           plan-title: '🏗️ Terraform Plan'
 
   # ============================================
+  # COMBINED INFRACOST REPORT
+  # ============================================
+  infracost-report:
+    name: Combined Cost Report
+    runs-on: ubuntu-latest
+    needs: plan
+    if: always() && !cancelled()
+    steps:
+      - name: Download all Infracost artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: infracost-*
+          path: /tmp/infracost
+          merge-multiple: false
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Combine Infracost Reports
+        run: |
+          # Find all infracost JSON files
+          find /tmp/infracost -name "*.json" -type f
+          
+          # Combine all reports into one
+          infracost output \
+            --path "/tmp/infracost/*/*.json" \
+            --format json \
+            --out-file /tmp/infracost-combined.json
+          
+          echo "Combined report generated:"
+          cat /tmp/infracost-combined.json | jq '.totalMonthlyCost'
+
+      - name: Post Combined Infracost Comment
+        uses: infracost/actions/comment@v1
+        with:
+          path: /tmp/infracost-combined.json
+          behavior: update
+
+  # ============================================
   # SECURITY GATE
   # ============================================
   security-gate:
     name: Security Gate
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, infracost-report]
+    if: always() && !cancelled()
     steps:
       - name: Security Check Passed
         run: |
