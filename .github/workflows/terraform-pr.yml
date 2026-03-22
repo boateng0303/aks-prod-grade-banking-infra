@@ -1,4 +1,4 @@
-name: 'Terraform Pull Request Validation'
+name: 'Terraform PR Validation'
 
 on:
   pull_request:
