@@ -338,6 +338,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "container_restarts" {
   }
 
   tags = var.tags
+
+  depends_on = [
+    azurerm_log_analytics_workspace.main,
+    azurerm_log_analytics_solution.container_insights
+  ]
 }
 
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "error_logs" {
@@ -375,6 +380,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "error_logs" {
   }
 
   tags = var.tags
+
+  depends_on = [
+    azurerm_log_analytics_workspace.main,
+    azurerm_application_insights.main
+  ]
 
   lifecycle {
     ignore_changes = [
