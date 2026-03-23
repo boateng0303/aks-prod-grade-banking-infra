@@ -81,7 +81,7 @@ module "resource_group" {
 
   name               = "${local.prefix}-rg"
   location           = local.location
-  enable_delete_lock = true
+  enable_delete_lock = false # Disabled for easier cleanup in personal project
   tags               = local.common_tags
 }
 
@@ -105,8 +105,8 @@ module "networking" {
   bastion_subnet_cidr          = "10.2.7.0/26"
 
   enable_application_gateway = true
-  enable_nat_gateway         = false  # Disabled to stay within public IP quota
-  enable_bastion             = false  # Disabled to stay within public IP quota
+  enable_nat_gateway         = false # Disabled to stay within public IP quota
+  enable_bastion             = false # Disabled to stay within public IP quota
 
   tags = local.common_tags
 }
