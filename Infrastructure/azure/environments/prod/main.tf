@@ -213,8 +213,8 @@ module "aks" {
 
   subnet_id = module.networking.aks_subnet_id
 
-  private_cluster_enabled             = true
-  private_cluster_public_fqdn_enabled = true
+  private_cluster_enabled             = false
+  private_cluster_public_fqdn_enabled = false
 
   sku_tier                  = "Standard"
   automatic_channel_upgrade = "stable"
